@@ -452,9 +452,19 @@ recv_begin_check_existing_impl(dmu_recv_begin_arg_t *drba, dsl_dataset_t *ds,
 		/* Sanity check the incremental recv */
 		uint64_t obj = dsl_dataset_phys(ds)->ds_prev_snap_obj;
 
-		/* Can't perform a raw receive on top of a non-raw receive */
-		if (!encrypted && raw)
-			return (SET_ERROR(EINVAL));
+		/*
+		 * Existing head is unencrypted, incoming is RAW (encrypted on disk).
+		 * Historically refused. Allow only if:
+		 *  - user passed -F (force) and
+		 *  - new opt-in is set (drc_allow_enc_change).
+		 * We still refuse otherwise.
+		 */
+		if (!encrypted && raw) {
+			if (!(drba->drba_cookie->drc_force &&
+			    drba->drba_cookie->drc_allow_enc_change)) {
+				return (SET_ERROR(EINVAL));
+			}
+		}
 
 		/* Encryption is incompatible with embedded data */
 		if (encrypted && embed)
@@ -1269,6 +1279,14 @@ dmu_recv_begin(const char *tofs, const char *tosnap,
 
 	memset(drc, 0, sizeof (dmu_recv_cookie_t));
 	drc->drc_drr_begin = drr_begin;
+	/* allow_encryption_change: opt-in via hidden args */
+	if (hidden_args != NULL) {
+		boolean_t allow_enc_change = B_FALSE;
+		if (nvlist_lookup_boolean_value(hidden_args,
+		    "allow_encryption_change", &allow_enc_change) == 0) {
+			drc->drc_allow_enc_change = allow_enc_change;
+		}
+	}
 	drc->drc_drrb = &drr_begin->drr_u.drr_begin;
 	drc->drc_tosnap = tosnap;
 	drc->drc_tofs = tofs;
@@ -3611,8 +3629,9 @@ dmu_recv_end_check(void *arg, dmu_tx_t *tx)
 			}
 		}
 
-		error = dsl_dataset_clone_swap_check_impl(drc->drc_ds,
-		    origin_head, drc->drc_force, drc->drc_owner, tx);
+		error = dsl_dataset_clone_swap_check_impl(drc->drc_ds, origin_head,
+		    drc->drc_force, drc->drc_owner, drc->drc_allow_enc_change,
+		    drc->drc_raw, tx);
 		if (error != 0) {
 			dsl_dataset_rele(origin_head, FTAG);
 			return (error);

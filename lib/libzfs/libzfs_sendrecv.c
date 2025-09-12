@@ -5041,6 +5041,17 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 		goto out;
 	}
 
+	/*
+	 * If user asked to allow encryption change, pass hidden bool.
+	 * (See CLI parsing below for setting flags->allow_enc_change)
+	 */
+	if (flags->allow_enc_change) {
+		if (hidden == NULL)
+		    VERIFY0(nvlist_alloc(&hidden, NV_UNIQUE_NAME, 0));
+		VERIFY0(nvlist_add_boolean_value(hidden,
+		    "allow_encryption_change", B_TRUE));
+	}
+
 	if (flags->heal) {
 		err = ioctl_err = lzc_receive_with_heal(destsnap, rcvprops,
 		    oxprops, wkeydata, wkeylen, origin, flags->force,
@@ -5313,6 +5324,8 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 			(void) zfs_standard_error(hdl, ioctl_errno, errbuf);
 		}
 	}
+
+
 
 	/*
 	 * Mount the target filesystem (if created).  Also mount any

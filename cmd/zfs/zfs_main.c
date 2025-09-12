@@ -5139,11 +5139,17 @@ zfs_do_receive(int argc, char **argv)
 	boolean_t abort_resumable = B_FALSE;
 	nvlist_t *props;
 
+int c, longidx = 0;
+	struct option long_options[] = {
+		{"allow-encryption-change", no_argument, NULL, 0x1001},
+		{0, 0, 0, 0}
+	};
+
 	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0)
 		nomem();
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":o:x:dehMnuvFsAc")) != -1) {
+	while ((c = getopt(argc, argv, ":o:x:dehMnuvFsAc", long_option, &longidx)) != -1) {
 		switch (c) {
 		case 'o':
 			if (!parseprop(props, optarg)) {
@@ -5201,6 +5207,9 @@ zfs_do_receive(int argc, char **argv)
 			break;
 		case 'c':
 			flags.heal = B_TRUE;
+			break;
+		case 0x1001: /* --allow-encryption-change */
+			flags.allow_enc_change = B_TRUE;
 			break;
 		case ':':
 			(void) fprintf(stderr, gettext("missing argument for "

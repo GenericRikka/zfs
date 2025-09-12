@@ -53,6 +53,8 @@ typedef struct dmu_recv_cookie {
 	boolean_t drc_resumable;
 	boolean_t drc_should_save;
 	boolean_t drc_raw;
+	/* NEW: opt-in to allow encryption-state change on -F raw receive */
+	boolean_t drc_allow_enc_change;
 	boolean_t drc_clone;
 	boolean_t drc_spill;
 	nvlist_t *drc_keynvl;

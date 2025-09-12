@@ -4067,7 +4067,8 @@ dsl_dataset_promote(const char *name, char *conflsnap)
 
 int
 dsl_dataset_clone_swap_check_impl(dsl_dataset_t *clone,
-    dsl_dataset_t *origin_head, boolean_t force, void *owner, dmu_tx_t *tx)
+    dsl_dataset_t *origin_head, boolean_t force, void *owner,
+    boolean_t allow_enc_change, boolean_t raw, dmu_tx_t *tx)
 {
 	/*
 	 * "slack" factor for received datasets with refquota set on them.
@@ -4134,6 +4135,21 @@ dsl_dataset_clone_swap_check_impl(dsl_dataset_t *clone,
 	    dsl_dataset_phys(clone)->ds_referenced_bytes >
 	    origin_head->ds_quota + refquota_slack)
 		return (SET_ERROR(EDQUOT));
+
+	/*
+	 * Allow encryption-root change when:
+	 *  - receive is forced (-F),
+	 *  - userspace opted in (drc_allow_enc_change),
+	 *  - incoming stream is RAW (so on-disk crypto matches),
+	 *  - target is not mounted/busy (or receive used -u).
+	 * Otherwise, retain existing “no encryption change” rule.
+	 */
+	if (origin_head->ds_dir->dd_crypto_obj != clone->ds_dir->dd_crypto_obj) {
+		if (!(force && allow_enc_change && raw)) {
+			return (SET_ERROR(EINVAL));
+		}
+		/* TODO: verify target not mounted/busy and reject if so */
+	}
 
 	return (0);
 }
@@ -4364,6 +4380,31 @@ dsl_dataset_clone_swap_sync_impl(dsl_dataset_t *clone,
 
 	spa_history_log_internal_ds(clone, "clone swap", tx,
 	    "parent=%s", origin_head->ds_dir->dd_myname);
+
+	/*
+	 * If we’re changing encryption state, update the directory crypto object
+	 * and keystore mapping to match the new head (the former clone).
+	 */
+	if (origin_head->ds_dir->dd_crypto_obj != clone->ds_dir->dd_crypto_obj) {
+		spa_t *spa = dmu_tx_pool(tx)->dp_spa;
+
+		/* Remove old mapping if present */
+		if (origin_head->ds_dir->dd_crypto_obj != 0) {
+			(void) spa_keystore_remove_mapping(spa,
+			    origin_head->ds_object, origin_head);
+		}
+		/* Adopt clone's crypto object */
+		dmu_buf_will_dirty(origin_head->ds_dir->dd_dbuf, tx);
+		dsl_dir_phys(origin_head->ds_dir)->dd_crypto_obj =
+		    dsl_dir_phys(clone->ds_dir)->dd_crypto_obj;
+		/* Recreate mapping consistent with new head */
+		if (dsl_dir_phys(origin_head->ds_dir)->dd_crypto_obj != 0) {
+			/* TODO: ensure proper key loaded / mapping created */
+			(void) spa_keystore_create_mapping(spa,
+			    origin_head->ds_object, origin_head);
+		}
+	}
+
 }
 
 /*
