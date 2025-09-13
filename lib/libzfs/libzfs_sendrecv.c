@@ -5041,15 +5041,13 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 		goto out;
 	}
 
-	/*
-	 * If user asked to allow encryption change, pass hidden bool.
-	 * (See CLI parsing below for setting flags->allow_enc_change)
-	 */
+	/* If user asked to allow encryption change, piggy-back on rcvprops. */
 	if (flags->allow_enc_change) {
-		if (hidden == NULL)
-		    VERIFY0(nvlist_alloc(&hidden, NV_UNIQUE_NAME, 0));
-		VERIFY0(nvlist_add_boolean_value(hidden,
-		    "allow_encryption_change", B_TRUE));
+		if (rcvprops == NULL) {
+			VERIFY0(nvlist_alloc(&rcvprops, NV_UNIQUE_NAME, 0));
+		}
+		VERIFY0(nvlist_add_boolean_value(rcvprops,
+		"recv.allow_encryption_change", B_TRUE));
 	}
 
 	if (flags->heal) {
@@ -5384,7 +5382,6 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 out:
 	if (prop_errors != NULL)
 		fnvlist_free(prop_errors);
-
 	if (tmp_keylocation[0] != '\0') {
 		fnvlist_add_string(rcvprops,
 		    zfs_prop_to_name(ZFS_PROP_KEYLOCATION), tmp_keylocation);

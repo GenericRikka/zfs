@@ -1279,12 +1279,22 @@ dmu_recv_begin(const char *tofs, const char *tosnap,
 
 	memset(drc, 0, sizeof (dmu_recv_cookie_t));
 	drc->drc_drr_begin = drr_begin;
-	/* allow_encryption_change: opt-in via hidden args */
+	/* allow_encryption_change: opt-in via hidden args or localprops */
 	if (hidden_args != NULL) {
 		boolean_t allow_enc_change = B_FALSE;
 		if (nvlist_lookup_boolean_value(hidden_args,
 		    "allow_encryption_change", &allow_enc_change) == 0) {
 			drc->drc_allow_enc_change = allow_enc_change;
+		}
+	}
+	if (localprops != NULL) {
+		boolean_t allow2 = B_FALSE;
+		if (nvlist_lookup_boolean_value(localprops,
+		    "recv.allow_encryption_change", &allow2) == 0) {
+			drc->drc_allow_enc_change = allow2;
+			/* Prevent later “apply properties” from seeing it */
+			(void) nvlist_remove_all(localprops,
+			    "recv.allow_encryption_change");
 		}
 	}
 	drc->drc_drrb = &drr_begin->drr_u.drr_begin;

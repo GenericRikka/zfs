@@ -5135,21 +5135,23 @@ static int
 zfs_do_receive(int argc, char **argv)
 {
 	int c, err = 0;
+	int longidx = 0;
+
 	recvflags_t flags = { 0 };
 	boolean_t abort_resumable = B_FALSE;
 	nvlist_t *props;
 
-int c, longidx = 0;
-	struct option long_options[] = {
-		{"allow-encryption-change", no_argument, NULL, 0x1001},
-		{0, 0, 0, 0}
+	static const struct option long_options[] = {
+		{ "allow-encryption-change", no_argument, NULL, 0x1001 },
+		{ 0, 0, 0, 0 }
 	};
 
 	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0)
 		nomem();
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":o:x:dehMnuvFsAc", long_option, &longidx)) != -1) {
+	while ((c = getopt_long(argc, argv, ":o:x:dehMnuvFsAc",
+	    long_options, &longidx)) != -1) {
 		switch (c) {
 		case 'o':
 			if (!parseprop(props, optarg)) {
