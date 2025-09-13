@@ -4145,7 +4145,7 @@ dsl_dataset_clone_swap_check_impl(dsl_dataset_t *clone,
 	 * Otherwise, retain existing “no encryption change” rule.
 	 */
 	if (origin_head->ds_dir->dd_crypto_obj != clone->ds_dir->dd_crypto_obj) {
-		if (!(force && allow_enc_change && raw)) {
+		if (!(allow_enc_change && raw)) {
 			return (SET_ERROR(EINVAL));
 		}
 		/* TODO: verify target not mounted/busy and reject if so */
