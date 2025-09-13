@@ -4864,7 +4864,8 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 		}
 
 		if (stream_wantsnewfs && flags->force &&
-		    ((raw && !encrypted) || encrypted)) {
+		    ((raw && !encrypted) || encrypted) &&
+		    !(flags->allow_enc_change && raw)) {
 			zfs_close(zhp);
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "zfs receive -F cannot be used to destroy an "
