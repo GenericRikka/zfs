@@ -4453,6 +4453,9 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 	boolean_t redacted;
 	uint8_t *wkeydata = NULL;
 	uint_t wkeylen = 0;
+	boolean_t raw = B_FALSE;
+	char poolname[ZFS_MAX_DATASET_NAME_LEN] = {0};
+	zpool_handle_t *dst_pool = NULL;
 
 #ifndef CLOCK_MONOTONIC_RAW
 #define	CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
@@ -4517,6 +4520,13 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 				    lookup, snapname);
 			}
 		}
+	}
+
+	if (flags->allow_enc_change) {
+		if (cmdprops == NULL)
+		    cmdprops = fnvlist_alloc();
+		fnvlist_add_boolean_value(cmdprops,
+		    "allow_encryption_change", B_TRUE);
 	}
 
 	cp = NULL;
@@ -4610,6 +4620,59 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 	}
 
 	/*
+	 * Determine RAW from the BEGIN header (do this once, no redeclare later).
+	 */
+	raw = (DMU_GET_FEATUREFLAGS(drrb->drr_versioninfo) &
+	DMU_BACKUP_FEATURE_RAW) != 0;
+
+	/*
+	 * PRE-FLIGHT: RAW streams require pool feature@encryption=enabled.
+	 * If disabled and user opted in, enable it now; else fail with guidance.
+	 */
+	if (raw) {
+	/* Extract pool name from "pool[/...]@snap" */
+	(void) strlcpy(poolname, destsnap, sizeof (poolname));
+	char *slash = strchr(poolname, '/');
+	char *at    = strchr(poolname, '@');
+	char *end   = slash ? slash : at;
+	if (end != NULL) *end = '\0';
+
+	dst_pool = zpool_open_canfail(hdl, poolname);
+	if (dst_pool == NULL) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN),
+		    "failed to open destination pool '%s'", poolname);
+		err = zfs_error(hdl, EZFS_OPENFAILED, errbuf);
+		goto out;
+	}
+
+	/* Check feature state; helper names vary by tree, fallback is ok */
+	char fbuf[ZPOOL_MAXPROPLEN] = {0};
+	(void) zpool_get_prop(dst_pool, "feature@encryption",
+	    fbuf, sizeof (fbuf), NULL);
+	if (strcmp(fbuf, "disabled") == 0) {
+		if (flags->allow_enc_change) {
+			/* Try to enable the feature explicitly */
+			if (zpool_set_prop(dst_pool, "feature@encryption",
+			    "enabled") != 0) {
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN),
+				    "pool '%s' has feature@encryption=disabled; "
+				"failed to enable it automatically", poolname);
+				err = zfs_error(hdl, EZFS_BADPROP, errbuf);
+				goto out;
+			}
+		} else {
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN),
+			    "pool '%s' has feature@encryption=disabled; "
+			    "enable it (e.g. "
+			    "'zpool upgrade -o feature@encryption=enabled %s') "
+			    "or re-send without -w", poolname, poolname);
+			err = zfs_error(hdl, EZFS_BADPROP, errbuf);
+			goto out;
+		}
+	}
+}
+
+	/*
 	 * Determine the name of the origin snapshot.
 	 */
 	if (originsnap) {
@@ -4644,8 +4707,6 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 
 	boolean_t resuming = DMU_GET_FEATUREFLAGS(drrb->drr_versioninfo) &
 	    DMU_BACKUP_FEATURE_RESUMING;
-	boolean_t raw = DMU_GET_FEATUREFLAGS(drrb->drr_versioninfo) &
-	    DMU_BACKUP_FEATURE_RAW;
 	boolean_t embedded = DMU_GET_FEATUREFLAGS(drrb->drr_versioninfo) &
 	    DMU_BACKUP_FEATURE_EMBED_DATA;
 	stream_wantsnewfs = (drrb->drr_fromguid == 0 ||
@@ -5387,6 +5448,9 @@ out:
 		fnvlist_add_string(rcvprops,
 		    zfs_prop_to_name(ZFS_PROP_KEYLOCATION), tmp_keylocation);
 	}
+
+	if (dst_pool != NULL)
+	    zpool_close(dst_pool);
 
 	if (newprops)
 		fnvlist_free(rcvprops);
