@@ -4622,6 +4622,11 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 	raw = (DMU_GET_FEATUREFLAGS(drrb->drr_versioninfo) &
 	    DMU_BACKUP_FEATURE_RAW) != 0;
 
+	/* If user opted in, add a boolean prop we can read in-kernel */
+	if (flags->allow_enc_change) {
+		fnvlist_add_boolean_value(rcvprops, "recv.allow_encryption_change", B_TRUE);
+	}
+
 	/*
 	 * PRE-FLIGHT: RAW streams require pool feature@encryption=enabled.
 	 * If disabled, fail with guidance.
@@ -4906,9 +4911,13 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 			goto out;
 		}
 
+		/*
+		 * Allow -F replacement across encryption boundary *only* if:
+		 *   - stream is RAW (zfs send -w)
+		 *   - user passed --allow-encryption-change
+		 */
 		if (stream_wantsnewfs && flags->force &&
-		    ((raw && !encrypted) || encrypted) &&
-		    !(flags->allow_enc_change && raw)) {
+		    ((raw && !encrypted) || encrypted) && !flags->allow_enc_change) {
 			zfs_close(zhp);
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "zfs receive -F cannot be used to destroy an "

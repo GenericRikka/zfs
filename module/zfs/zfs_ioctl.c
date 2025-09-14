@@ -174,6 +174,7 @@
 #include <sys/spa_impl.h>
 #include <sys/vdev.h>
 #include <sys/vdev_impl.h>
+#include <sys/nvpair.h>
 #include <sys/dmu.h>
 #include <sys/dsl_dir.h>
 #include <sys/dsl_dataset.h>
@@ -5298,6 +5299,20 @@ zfs_ioc_recv_impl(char *tofs, char *tosnap, const char *origin,
     dmu_replay_record_t *begin_record, uint64_t *read_bytes,
     uint64_t *errflags, nvlist_t **errors)
 {
+	boolean_t allow_enc_change = B_FALSE;
+	if (recvprops != NULL) {
+		(void) nvlist_lookup_boolean_value(recvprops,
+		    "recv.allow_encryption_change", &allow_enc_change);
+	}
+	if (allow_enc_change) {
+		if (hidden_args == NULL) {
+			VERIFY0(nvlist_alloc(&hidden_args,
+			    NV_UNIQUE_NAME, KM_SLEEP));
+		}
+		VERIFY0(nvlist_add_boolean_value(hidden_args,
+		    "allow_encryption_change", B_TRUE));
+	}
+
 	dmu_recv_cookie_t drc;
 	int error = 0;
 	int props_error = 0;
